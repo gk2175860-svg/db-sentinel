@@ -1,0 +1,10 @@
+import sqlite3
+conn = sqlite3.connect(r'C:\DB sentinel\agent-engine\db_sentinel.db')
+cursor = conn.cursor()
+cursor.execute('SELECT name FROM sqlite_master WHERE type="table"')
+tables = cursor.fetchall()
+print('Tables:', tables)
+cursor.execute('SELECT * FROM databases')
+dbs = cursor.fetchall()
+print('Databases:', dbs)
+conn.close()

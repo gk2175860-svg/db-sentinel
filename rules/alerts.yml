@@ -1,0 +1,183 @@
+groups:
+  - name: db-sentinel-backend
+    interval: 30s
+    rules:
+      # High-level alerts
+      - alert: BackendDown
+        expr: up{job="db-sentinel-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB Sentinel Backend is down"
+          description: "Backend API has been down for more than 1 minute"
+
+      - alert: BackendHighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="db-sentinel-backend"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "95th percentile latency is above 1 second"
+
+      - alert: BackendHighErrorRate
+        expr: rate(http_requests_total{job="db-sentinel-backend",status=~"5.."}[5m]) / rate(http_requests_total{job="db-sentinel-backend"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate"
+          description: "Error rate exceeds 5%"
+
+      # Database alerts
+      - alert: DatabaseConnectionFailed
+        expr: db_connection_status == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failed"
+          description: "Unable to connect to monitored database"
+
+      - alert: HighDatabaseLatency
+        expr: histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database query latency"
+          description: "95th percentile query latency exceeds 5 seconds"
+
+      - alert: DatabaseHighErrorRate
+        expr: rate(db_query_errors_total[5m]) / rate(db_query_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database query error rate high"
+          description: "Query error rate exceeds 1%"
+
+      # Task queue alerts
+      - alert: TaskQueueBacklog
+        expr: task_queue_length > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Task queue backlog"
+          description: "More than 100 tasks pending in queue"
+
+      - alert: TaskFailureRateHigh
+        expr: rate(task_failures_total[5m]) / rate(task_started_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High task failure rate"
+          description: "More than 10% of tasks are failing"
+
+      # Resource alerts
+      - alert: HighMemoryUsage
+        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Container memory usage exceeds 85%"
+
+      - alert: HighCPUUsage
+        expr: (rate(container_cpu_usage_seconds_total[5m]) / container_spec_cpu_quota / container_spec_cpu_period) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "Container CPU usage exceeds 85%"
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Less than 10% disk space remaining"
+
+      # Redis alerts
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance is not responding"
+
+      - alert: RedisHighMemory
+        expr: (redis_memory_used_bytes / redis_memory_max_bytes) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis memory usage exceeds 90%"
+
+      # PostgreSQL alerts
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "PostgreSQL instance is not responding"
+
+      - alert: PostgresTooManyConnections
+        expr: (pg_stat_database_numbackends / pg_settings_max_connections) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL connection pool near limit"
+          description: "More than 85% of max connections in use"
+
+      - alert: PostgresReplicationLag
+        expr: pg_replication_lag > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PostgreSQL replication lag"
+          description: "Replication lag exceeds 10 seconds"
+
+  - name: db-sentinel-frontend
+    interval: 30s
+    rules:
+      - alert: FrontendDown
+        expr: up{job="db-sentinel-frontend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Frontend is down"
+          description: "Frontend web server is not responding"
+
+      - alert: FrontendHighLatency
+        expr: histogram_quantile(0.95, rate(nginx_http_request_duration_seconds_bucket{job="db-sentinel-frontend"}[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Frontend high latency"
+          description: "95th percentile response time exceeds 2 seconds"
+
+      - alert: NginxHighErrorRate
+        expr: rate(nginx_http_requests_total{job="db-sentinel-frontend",status=~"5.."}[5m]) / rate(nginx_http_requests_total{job="db-sentinel-frontend"}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nginx high error rate"
+          description: "Nginx returning 5xx errors > 5%"

@@ -1,0 +1,59 @@
+# Production Dockerfile for agent-engine
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files
+COPY pyproject.toml uv.lock ./
+
+# Install only production dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy application code
+COPY . .
+
+# Production stage
+FROM python:3.11-slim AS production
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app \
+    && chown -R app:app /app
+USER app
+
+# Copy from builder
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/app /app/app
+COPY --from=builder --chown=app:app /app/alembic /app/alembic
+COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
+
+# Copy entrypoint script
+COPY --chown=app:app entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+# Entrypoint runs migrations then starts app
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["/app/.venv/bin/uvicorn", "app.main:create_app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

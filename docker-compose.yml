@@ -1,0 +1,109 @@
+version: '3.8'
+
+services:
+  # MySQL for metadata storage
+  mysql:
+    image: mysql:8.0
+    container_name: db-sentinel-mysql
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-db_sentinel}
+      MYSQL_USER: ${MYSQL_USER:-db_sentinel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${MYSQL_USER:-db_sentinel}", "-p${MYSQL_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Redis for queue, cache, pub/sub
+  redis:
+    image: redis:7-alpine
+    container_name: db-sentinel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Ollama for local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: db-sentinel-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # Backend API
+  agent-engine:
+    build:
+      context: ./agent-engine
+      dockerfile: Dockerfile
+    container_name: db-sentinel-agent-engine
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-db_sentinel}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-db_sentinel}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      AI_DEFAULT_PROVIDER: ${AI_DEFAULT_PROVIDER:-ollama}
+      AI_PREFER_LOCAL: ${AI_PREFER_LOCAL:-true}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./agent-engine:/app
+    command: uvicorn app.main:create_app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend Dashboard
+  web-dashboard:
+    build:
+      context: ./web-dashboard
+      dockerfile: Dockerfile
+    container_name: db-sentinel-web-dashboard
+    environment:
+      VITE_API_URL: http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    depends_on:
+      - agent-engine
+    volumes:
+      - ./web-dashboard:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+
+volumes:
+  mysql_data:
+  redis_data:
+  ollama_data:
